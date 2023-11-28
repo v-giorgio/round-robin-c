@@ -8,6 +8,9 @@ typedef int bool;
 
 #define HIGH_CONSTANT 100
 #define QUANTUM 5
+#define DISCO 1
+#define FITA 2
+#define IMPRESSORA 3
 #define DISCO_IO_DURATION 4
 #define FITA_IO_DURATION 6
 #define IMPRESSORA_IO_DURATION 10
@@ -15,26 +18,26 @@ typedef int bool;
 #define MAX_QUEUE_SIZE 100
 
 typedef struct {
-    char pid[3]; // Usei um array de caracteres para representar o PID
+    char pid[3];
     int priority; // 0 (baixa) e 1 (alta); começa como 1 pois processos novos vão para alta prioridade
-    int status; // 0: Pronto, 1: Bloqueado, 2: Finalizado
+    int status; // 0: Pronto, 1: Bloqueado, 2: Finalizado; inicia como pronto = 0
     int duration;
-    int total_exec; // tempo total de execucao do processo ate entao
-    int activation_time;
+    int total_exec; // tempo total de execucao
+    int activation_time; // instante de ativacao
     int end_time;
-    int num_ios;    // Número total de I/Os que o processo precisa realizar
-    int io_type[10]; // Tipos de I/O que o processo chama
-    int io_time[10]; // Instantes em que o I/O é chamado
-    int io_return; // Instante em que retorna de I/O
-    bool io_concluded[10]; // se o io do indice foi concluido
+    int num_ios;    // num total de ios
+    int io_type[10]; // array com os TIPOS de io
+    int io_time[10]; // array com os INSTANTES de ativacao dos ios
+    int io_return; // instante que retorna do io atual
+    bool io_concluded[10]; // array com os STATUS de cada io (concluido ou nao)
     int index_io_exec; // indice do io que esta sendo executado
 } Process;
 
 // retorna o tempo para cada io type:
 int getIOTime(int type) {
-    if (type == 1) return DISCO_IO_DURATION;
-    if (type == 2) return FITA_IO_DURATION;
-    if (type == 3) return IMPRESSORA_IO_DURATION;
+    if (type == DISCO) return DISCO_IO_DURATION;
+    if (type == FITA) return FITA_IO_DURATION;
+    if (type == IMPRESSORA) return IMPRESSORA_IO_DURATION;
 }
 
 // Função de comparação para qsort
@@ -50,7 +53,7 @@ Process initializeProcess(char pid[], int activation_time, int execution_time,
     Process process;
     strcpy(process.pid, pid);
     process.priority = 1;
-    process.status = 0; // Inicia como pronto
+    process.status = 0;
     process.duration = execution_time;
     process.activation_time = activation_time;
     process.total_exec = 0;
@@ -59,7 +62,7 @@ Process initializeProcess(char pid[], int activation_time, int execution_time,
     process.index_io_exec = 0;
     process.io_return = HIGH_CONSTANT;
 
-    // Copia os tipos e instantes de I/O
+    // copia os tipos e instantes de I/O
     for (int i = 0; i < num_ios; i++) {
         process.io_type[i] = io_types[i];
         process.io_time[i] = io_times[i];
@@ -72,10 +75,12 @@ Process initializeProcess(char pid[], int activation_time, int execution_time,
 Process* roundRobinScheduler(Process processes[], int num_processes) {
     int time = 0;
     int start_time = 0;
+    // inicializar 3 filas
     Process high_priority_queue[MAX_QUEUE_SIZE];
     Process low_priority_queue[MAX_QUEUE_SIZE];
     Process io_queue[MAX_QUEUE_SIZE];
 
+    // inicializar strings de IO para output
     char disco[] = "Disco";
     char fita[] = "Fita";
     char impressora[] = "Impressora";
@@ -86,7 +91,7 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
     int lower_exec_time = MAX_EXEC_TIME;
     int first_process_index = -1;
 
-    // Adiciona o processo com instante de ativação mais curto:
+    // adiciona o processo com instante de ativacao mais curto
     for (int i = 0; i < num_processes; i++){
         if (processes[i].activation_time <= lower_exec_time) {
             lower_exec_time = processes[i].activation_time;
@@ -98,7 +103,7 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
 
     printf("\n>>>>>>> Inicio de novo ciclo de execucao no tempo: %d u.t.\n\n", time);
 
-    // marcadores para posicoes das filas (para manter registro da fila no final):
+    // marcadores para posicoes das filas (para manter registro da fila no final)
     int item_high_queue = 0;
     int item_lower_queue = 0;
     int num_items_io_queue = 0;
@@ -107,6 +112,8 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
     int index = 0;
 
     while(true) {
+        // CICLO DE EXECUCAO:
+
         start_time = time;
         if (item_high_queue < high_priority_queue_size) {
             // verifica fila de alta prioridade primeiro:
@@ -115,10 +122,10 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
             high_priority_queue[index].io_time[high_priority_queue[index].index_io_exec] <= (high_priority_queue[index].total_exec + QUANTUM)) {
                 // chama io antes do quantum acabar:
                 temp_diff = high_priority_queue[index].io_time[high_priority_queue[index].index_io_exec] - high_priority_queue[index].total_exec;
-                high_priority_queue[index].io_return = getIOTime(high_priority_queue[index].io_type[high_priority_queue[index].index_io_exec]) + time + temp_diff; // armazena o tempo que retornara de io
-                high_priority_queue[index].total_exec += temp_diff;  // tempo total já usado acumulado
-                high_priority_queue[index].num_ios--; // remove dos ios do processo
-                high_priority_queue[index].status = 1; // fica bloqueado
+                high_priority_queue[index].io_return = getIOTime(high_priority_queue[index].io_type[high_priority_queue[index].index_io_exec]) + time + temp_diff; // armazena o instante que retornara de io
+                high_priority_queue[index].total_exec += temp_diff;
+                high_priority_queue[index].num_ios--;
+                high_priority_queue[index].status = 1;
                 io_queue[num_items_io_queue++] = high_priority_queue[index]; // adiciona processo na fila de ios
                 time += temp_diff;
             } else if (
@@ -126,14 +133,14 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
             (high_priority_queue[index].num_ios == 0 && high_priority_queue[index].total_exec + QUANTUM < high_priority_queue[index].duration)) {
                 // sofre preempcao:
                 high_priority_queue[index].total_exec += QUANTUM;
-                low_priority_queue[low_priority_queue_size++] = high_priority_queue[index];
+                low_priority_queue[low_priority_queue_size++] = high_priority_queue[index]; // adiciona na fila de baixa prioridade
                 low_priority_queue[low_priority_queue_size].priority = 0;
                 time += QUANTUM;
             } else if (high_priority_queue[index].num_ios == 0 && high_priority_queue[index].total_exec + QUANTUM >= high_priority_queue[index].duration) {
-                // finalizou:
+                // processo finalizou:
                 time += (high_priority_queue[index].duration - high_priority_queue[index].total_exec);
                 high_priority_queue[index].total_exec = high_priority_queue[index].duration;
-                high_priority_queue[index].status = 2; // finaliza processo
+                high_priority_queue[index].status = 2;
                 high_priority_queue[index].end_time = time;
             }
             item_high_queue++; // passar para o prox processo da fila de alta prioridade
@@ -145,9 +152,9 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
                 // chama io antes do quantum acabar:
                 temp_diff = low_priority_queue[index].io_time[low_priority_queue[index].index_io_exec] - low_priority_queue[index].total_exec;
                 low_priority_queue[index].io_return = getIOTime(low_priority_queue[index].io_type[low_priority_queue[index].index_io_exec]) + time + temp_diff; // armazena o tempo que retornara de io
-                low_priority_queue[index].total_exec += temp_diff;  // tempo total já usado acumulado
-                low_priority_queue[index].num_ios--; // remove dos ios do processo
-                low_priority_queue[index].status = 1; // fica bloqueado
+                low_priority_queue[index].total_exec += temp_diff;
+                low_priority_queue[index].num_ios--;
+                low_priority_queue[index].status = 1;
                 io_queue[num_items_io_queue++] = low_priority_queue[index]; // adiciona processo na fila de ios
                 time += temp_diff;
             } else if (
@@ -155,19 +162,19 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
             (low_priority_queue[index].num_ios == 0 && low_priority_queue[index].total_exec + QUANTUM < low_priority_queue[index].duration)) {
                 // sofre preempcao:
                 low_priority_queue[index].total_exec += QUANTUM;
-                low_priority_queue[low_priority_queue_size++] = low_priority_queue[index];
+                low_priority_queue[low_priority_queue_size++] = low_priority_queue[index]; // adiciona na fila de baixa prioridade
                 time += QUANTUM;
             } else if (low_priority_queue[index].num_ios == 0 && low_priority_queue[index].total_exec + QUANTUM >= low_priority_queue[index].duration) {
-                // finalizou:
+                // processo finalizou:
                 time += (low_priority_queue[index].duration - low_priority_queue[index].total_exec);
                 low_priority_queue[index].total_exec = low_priority_queue[index].duration;
-                low_priority_queue[index].status = 2; // finaliza processo
+                low_priority_queue[index].status = 2;
                 low_priority_queue[index].end_time = time;
             }
             item_lower_queue++; // passar para o prox processo da fila de baixa prioridade
         } else if (num_items_io_queue > 0) {
             // verifica se ha processos em io somente se filas de alta e baixa estiverem vazias (cpu ociosa):
-            // iterar usando o item_io_queue para achar o tempo que acaba o io dos processos e ver qual o mais proximo para somar o time ate ele
+            // iterar pela fila de ios para achar o tempo de retorno de io dos processos e ver qual o mais proximo para somar o 'time' ate ele
             int selected_io = HIGH_CONSTANT;
             for (int i = 0; i < num_items_io_queue; i++) {
                 if (io_queue[i].io_concluded[io_queue[i].index_io_exec] == false) {
@@ -178,14 +185,14 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
             }
 
             if (selected_io < HIGH_CONSTANT) {
-                time = io_queue[selected_io].io_return; // atualiza o tempo para quando a cpu voltará a ser utilizada
+                time = io_queue[selected_io].io_return; // atualiza o tempo para quando a cpu voltara a ser utilizada
                 printf("> > > [!] Nao houve execucao (CPU ociosa) no periodo: %d u.t. -> %d u.t.\n\n", start_time, time);
             } else {
-                // não havendo processos em mais nenhuma fila, finaliza escalonamento:
+                // nao havendo processos em mais nenhuma fila, finaliza escalonamento
                 printf("\nTodos os processos foram concluidos.\n");
                 Process *processes_after_exec = (Process*)malloc(num_processes * sizeof(Process));
                 int index_proc = 0;
-                // iterar pelas filas para recuperar os processos finalizados com todas as infos:
+                // iterar pelas filas para recuperar os processos finalizados com todas as infos
                 for (int i = 0; i <= item_high_queue; i++) {
                     if (high_priority_queue[i].status == 2) {
                         processes_after_exec[index_proc++] = high_priority_queue[i];
@@ -202,8 +209,9 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
             }
         }
 
-        // reorganizar filas:
-        // verifica novos prontos:
+        // REORGANIZAR FILAS:
+
+        // verifica novos prontos
         bool valid;
         for (int i = 0; i < num_processes; i++) {
             valid = true;
@@ -229,7 +237,8 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
                 }
             }
         }
-        // verifica quem sai do io e vai para as filas:
+
+        // verifica quem sai do io e vai para as filas
         Process processes_back_from_io[MAX_QUEUE_SIZE];
         int index_back_from_io = 0;
         for (int i = 0; i < num_items_io_queue; i++) {
@@ -255,6 +264,8 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
                 high_priority_queue[high_priority_queue_size++].priority = 1;
             }
         }
+
+        // OUTPUT DO INTERVALO ATUAL:
 
         printf("[Ciclo de execução: %d u.t. -> %d u.t.]\n", start_time, time);
         // printar fila após ciclo de execução:
@@ -291,13 +302,12 @@ Process* roundRobinScheduler(Process processes[], int num_processes) {
 }
 
 int main() {
-    // DISCO = 1; FITA = 2; IMPRESSORA = 3
     int num_processes = 3;
-    int io_types1[] = {1, 3}; // Disco e Impressora
+    int io_types1[] = {DISCO, IMPRESSORA};
     int io_times1[] = {6, 14};
-    int io_types2[] = {1, 2, 3}; // Disco, Fita e Impressora
+    int io_types2[] = {DISCO, FITA, IMPRESSORA}; // Disco, Fita e Impressora
     int io_times2[] = {2, 5, 9};
-    int io_types3[] = {3, 2}; // Impressora e Fita
+    int io_types3[] = {IMPRESSORA, FITA}; // Impressora e Fita
     int io_times3[] = {4, 6};
 
     Process processes[num_processes];
@@ -311,6 +321,7 @@ int main() {
         printf("Turnaround do processo %s: %d\n", finished_processes[i].pid, finished_processes[i].end_time - finished_processes[i].activation_time);
     }
 
+    // limpar memoria usada para retorno do array de structs
     free(finished_processes);
 
     return 0;
